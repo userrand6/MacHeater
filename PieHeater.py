@@ -28,8 +28,6 @@ def get_power_plugged_in():
 
 def get_temperatures():
     pad_temp = 0.0
-
-    # Read Battery/Trackpad Temp via ioreg (Works universally on all MacBooks)
     try:
         cmd = ["ioreg", "-r", "-n", "AppleSmartBattery"]
         output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -40,7 +38,6 @@ def get_temperatures():
                 break
     except Exception:
         pass
-
     return pad_temp
 
 class MacHeaterApp(rumps.App):
@@ -49,39 +46,62 @@ class MacHeaterApp(rumps.App):
         
         # State
         self.is_running = False
-        self.is_paused = False
-        self.pause_start_time = 0
-        self.target_reached_time = 0
-        self.heating_start_time = 0
-        
-        # Preferences
         self.target_temp = 35.0
         self.duration_mins = 10
         self.override_power = False
+        self.override_start_time = 0  # Tracks when override was enabled
         self.cpu_levels = [25, 50, 75, 100]
         self.cpu_level_idx = 3 # Default to 100%
         
         self.load_prefs()
         
-        # Multiprocessing
+        self.target_reached_time = 0
+        self.heating_start_time = 0
         self.processes = []
         self.stop_flag = multiprocessing.Value('b', False)
 
-        # Menu Items
+        # Menu Structure
         self.status_menu = rumps.MenuItem("Status: Idle")
         self.start_stop_btn = rumps.MenuItem("Start Heating", callback=self.toggle_heating)
-        self.temp_btn = rumps.MenuItem(f"Set Target Temp (Current: {self.target_temp}°C)", callback=self.set_temp)
-        self.duration_btn = rumps.MenuItem(f"Set Hold Duration (Current: {self.duration_mins}m)", callback=self.set_duration)
-        self.cpu_usage_btn = rumps.MenuItem(f"CPU Usage: {self.cpu_levels[self.cpu_level_idx]}%", callback=self.toggle_cpu_usage)
-        self.override_btn = rumps.MenuItem(f"Manual Battery Override: {'ON' if self.override_power else 'OFF'}", callback=self.toggle_override)
         
+        # Settings Submenu items
+        self.temp_menu = rumps.MenuItem("Target Temperature")
+        self.temp_options = {}
+        for t in [30.0, 32.5, 35.0, 37.5, 40.0]:
+            item = rumps.MenuItem(f"{t}°C", callback=self.set_temp_target)
+            if t == self.target_temp:
+                item.state = 1
+            self.temp_options[t] = item
+            self.temp_menu.add(item)
+
+        self.duration_menu = rumps.MenuItem("Hold Duration")
+        self.duration_options = {}
+        for d in [5, 10, 15, 30]:
+            item = rumps.MenuItem(f"{d} minutes", callback=self.set_duration_target)
+            if d == self.duration_mins:
+                item.state = 1
+            self.duration_options[d] = item
+            self.duration_menu.add(item)
+
+        self.cpu_menu = rumps.MenuItem("CPU Usage")
+        self.cpu_options = {}
+        for pct in self.cpu_levels:
+            item = rumps.MenuItem(f"{pct}%", callback=self.set_cpu_target)
+            if pct == self.cpu_levels[self.cpu_level_idx]:
+                item.state = 1
+            self.cpu_options[pct] = item
+            self.cpu_menu.add(item)
+
+        self.override_btn = rumps.MenuItem(f"Manual Battery Override: {'ON' if self.override_power else 'OFF'}", callback=self.toggle_override)
+
         self.menu = [
             self.status_menu,
             None,
             self.start_stop_btn,
-            self.temp_btn,
-            self.duration_btn,
-            self.cpu_usage_btn,
+            None,
+            self.temp_menu,
+            self.duration_menu,
+            self.cpu_menu,
             self.override_btn,
             None
         ]
@@ -105,40 +125,36 @@ class MacHeaterApp(rumps.App):
                 'cpu_level_idx': self.cpu_level_idx
             }, f)
 
-    def set_temp(self, _):
-        window = rumps.Window(message="Enter target trackpad/battery temp in °C:", title="Target Temperature", default_text=str(self.target_temp))
-        response = window.run()
-        if response.clicked:
-            try:
-                self.target_temp = float(response.text)
-                self.temp_btn.title = f"Set Target Temp (Current: {self.target_temp}°C)"
-                self.save_prefs()
-            except ValueError:
-                rumps.notification("Invalid Input", "Please enter a valid number.", "")
+    def set_temp_target(self, sender):
+        for t, item in self.temp_options.items():
+            item.state = 0
+        sender.state = 1
+        self.target_temp = float(sender.title.replace('°C', ''))
+        self.save_prefs()
 
-    def set_duration(self, _):
-        window = rumps.Window(message="Enter duration in minutes to hold temp:", title="Hold Duration", default_text=str(self.duration_mins))
-        response = window.run()
-        if response.clicked:
-            try:
-                self.duration_mins = float(response.text)
-                self.duration_btn.title = f"Set Hold Duration (Current: {self.duration_mins}m)"
-                self.save_prefs()
-            except ValueError:
-                rumps.notification("Invalid Input", "Please enter a valid number.", "")
+    def set_duration_target(self, sender):
+        for d, item in self.duration_options.items():
+            item.state = 0
+        sender.state = 1
+        self.duration_mins = int(sender.title.split()[0])
+        self.save_prefs()
 
-    def toggle_cpu_usage(self, _):
-        self.cpu_level_idx = (self.cpu_level_idx + 1) % len(self.cpu_levels)
-        pct = self.cpu_levels[self.cpu_level_idx]
-        self.cpu_usage_btn.title = f"CPU Usage: {pct}%"
+    def set_cpu_target(self, sender):
+        for pct, item in self.cpu_options.items():
+            item.state = 0
+        sender.state = 1
+        pct_val = int(sender.title.replace('%', ''))
+        self.cpu_level_idx = self.cpu_levels.index(pct_val)
         self.save_prefs()
         
-        if self.is_running and not self.is_paused:
+        if self.is_running:
             self.stop_worker_processes()
             self.start_worker_processes()
 
     def toggle_override(self, _):
         self.override_power = not self.override_power
+        if self.override_power:
+            self.override_start_time = time.time()
         self.override_btn.title = f"Manual Battery Override: {'ON' if self.override_power else 'OFF'}"
 
     def start_worker_processes(self):
@@ -178,8 +194,6 @@ class MacHeaterApp(rumps.App):
             return
 
         self.is_running = True
-        self.is_paused = False
-        self.start_stop_btn.title = "Stop Heating"
         self.target_reached_time = 0
         self.heating_start_time = time.time()
         
@@ -188,7 +202,6 @@ class MacHeaterApp(rumps.App):
 
     def stop_heating(self):
         self.is_running = False
-        self.is_paused = False
         self.start_stop_btn.title = "Start Heating"
         self.title = "♨️"
         
@@ -200,28 +213,28 @@ class MacHeaterApp(rumps.App):
         pad_temp = get_temperatures()
         plugged_in = get_power_plugged_in()
         temp_str = f"(Pad: {pad_temp}°C)"
+
+        # Check if manual override needs to automatically turn off after 30 minutes
+        if self.override_power:
+            override_elapsed = (time.time() - self.override_start_time) / 60.0
+            if override_elapsed >= 30.0:
+                self.override_power = False
+                self.override_btn.title = "Manual Battery Override: OFF"
+                if self.is_running and not plugged_in:
+                    self.stop_heating()
+                rumps.notification("Override Expired", "Battery override turned off automatically.", "30-minute limit reached.")
         
         if self.is_running:
-            # 1. SENSOR FAILURE CUTOFF
             if pad_temp <= 0.0:
                 self.stop_heating()
                 rumps.notification("Sensor Error", "Lost trackpad temperature reading.", "Heating aborted for safety.")
                 return
 
-            # 2. POWER AND OVERRIDE LIMITS
-            if not plugged_in:
-                if not self.override_power:
-                    self.stop_heating()
-                    rumps.notification("Power Lost", "Unplugged from AC.", "Heating stopped.")
-                    return
-                else:
-                    total_elapsed = (time.time() - self.heating_start_time) / 60.0
-                    if total_elapsed >= 30.0:
-                        self.stop_heating()
-                        rumps.notification("Battery Limit Reached", "Max 30 mins on battery.", "Heating stopped.")
-                        return
+            if not plugged_in and not self.override_power:
+                self.stop_heating()
+                rumps.notification("Power Lost", "Unplugged from AC and override expired/disabled.", "Heating stopped.")
+                return
 
-            # 3. TARGET TEMPERATURE HOLD LOGIC
             if pad_temp >= self.target_temp:
                 if self.target_reached_time == 0:
                     self.target_reached_time = time.time()
