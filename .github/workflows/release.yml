@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]      # e.g. git tag v1.0.0 && git push origin v1.0.0
+  workflow_dispatch:  # manual test build (uploads the zip as a workflow artifact only)
+
+permissions:
+  contents: write     # needed to create the GitHub release
+
+jobs:
+  build:
+    runs-on: macos-latest   # Apple Silicon runner, so the app is arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "APP_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=0.0.0-dev" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build app
+        run: python setup.py py2app
+
+      - name: Normalize name and ad-hoc sign
+        run: |
+          APP=$(ls -d dist/*.app | head -n 1)
+          [ "$APP" = "dist/MacHeater.app" ] || mv "$APP" dist/MacHeater.app
+          codesign --force --deep --sign - dist/MacHeater.app
+          codesign --verify --deep --strict dist/MacHeater.app
+
+      - name: Zip and checksum
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent MacHeater.app "MacHeater-${APP_VERSION}.zip"
+          shasum -a 256 "MacHeater-${APP_VERSION}.zip" | tee "MacHeater-${APP_VERSION}.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacHeater-${{ env.APP_VERSION }}
+          path: dist/MacHeater-*.zip*
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/MacHeater-*.zip dist/MacHeater-*.zip.sha256 \
+            --title "$GITHUB_REF_NAME" --generate-notes
