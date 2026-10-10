@@ -149,3 +149,8 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
 
 - Sustained full CPU load shortens battery life and adds thermal stress. Use it in moderation and keep the vents clear.
 - CPU 100% plus GPU 100% can draw more power than a small charger supplies, so the battery may still drain while plugged in. Lower the load if the battery percentage drops.
+- Settings migrated from older versions: the CPU preference key changed to `cpu_pct`, so that setting resets once.
+
+## License
+
+[MIT](LICENSE). Mac Heater deliberately keeps your CPU and GPU under sustained load. Use it at your own risk: the software is provided without warranty, as described in the license.
