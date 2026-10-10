@@ -2,6 +2,7 @@ import atexit
 import json
 import multiprocessing
 import os
+import plistlib
 import re
 import struct
 import subprocess
@@ -10,6 +11,11 @@ import time
 
 import rumps
 
+try:  # used to find the packaged .app (rumps already depends on PyObjC's Foundation)
+    from Foundation import NSBundle
+except ImportError:
+    NSBundle = None
+
 try:  # GPU load needs PyObjC's Metal bindings (pip install pyobjc-framework-Metal)
     import objc
     import Metal
@@ -17,6 +23,8 @@ except ImportError:
     objc = Metal = None
 
 CONFIG_FILE = os.path.expanduser("~/.mac_heater_prefs.json")
+LAUNCH_AGENT_DIR = os.path.expanduser("~/Library/LaunchAgents")
+FALLBACK_BUNDLE_ID = "io.github.macheater"
 
 TEMP_CHOICES = [20.0, 22.5, 25.0, 27.5, 30.0, 32.5, 35.0]
 DURATION_CHOICES = [5, 10, 15, 30, 45, 60]   # minutes
@@ -210,6 +218,52 @@ def get_battery_temp():
     return None
 
 
+def get_bundle():
+    """(bundle_path, bundle_id) when running as the packaged .app, else (None, None)."""
+    if not getattr(sys, "frozen", False) or NSBundle is None:  # py2app sets sys.frozen
+        return None, None
+    bundle = NSBundle.mainBundle()
+    path = str(bundle.bundlePath())
+    if not path.endswith(".app"):
+        return None, None
+    ident = bundle.bundleIdentifier()
+    return path, (str(ident) if ident else FALLBACK_BUNDLE_ID)
+
+
+def launch_agent_path(bundle_id):
+    return os.path.join(LAUNCH_AGENT_DIR, f"{bundle_id}.plist")
+
+
+def autostart_enabled(bundle_id):
+    return os.path.exists(launch_agent_path(bundle_id))
+
+
+def set_autostart(bundle_path, bundle_id, enabled):
+    """Add or remove a LaunchAgent that opens the app at login. Only writes when
+    something changed, so macOS doesn't re-announce an unchanged login item."""
+    path = launch_agent_path(bundle_id)
+    if not enabled:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        return
+    wanted = {"Label": bundle_id,
+              "ProgramArguments": ["/usr/bin/open", "-a", bundle_path],
+              "RunAtLoad": True}
+    try:
+        with open(path, "rb") as f:
+            if plistlib.load(f) == wanted:
+                return
+    except Exception:
+        pass
+    os.makedirs(LAUNCH_AGENT_DIR, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        plistlib.dump(wanted, f)
+    os.replace(tmp, path)
+
+
 def fmt_duration(seconds):
     seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
@@ -243,6 +297,13 @@ class MacHeaterApp(rumps.App):
         self.gpu_failed = False
         self.last_stop = "none yet"
 
+        self.bundle_path, self.bundle_id = get_bundle()
+        if self.bundle_path and autostart_enabled(self.bundle_id):
+            try:  # refresh in case the app was moved since it was enabled
+                set_autostart(self.bundle_path, self.bundle_id, True)
+            except OSError:
+                pass
+
         self.load_prefs()
 
         self.gpu_ok = gpu_supported()
@@ -273,6 +334,11 @@ class MacHeaterApp(rumps.App):
             self.gpu_menu = rumps.MenuItem("GPU Usage: unavailable")  # no callback = greyed out
         self.override_btn = rumps.MenuItem(
             "Manual Battery Override: OFF", callback=self.toggle_override)
+        if self.bundle_path:
+            self.autostart_btn = rumps.MenuItem("Launch at Login", callback=self.toggle_autostart)
+            self.autostart_btn.state = 1 if autostart_enabled(self.bundle_id) else 0
+        else:  # no callback = greyed out
+            self.autostart_btn = rumps.MenuItem("Launch at Login (packaged app only)")
 
         self.remaining_menu = rumps.MenuItem("Time remaining: —")
         self.last_stop_menu = rumps.MenuItem(f"Last stop: {self.last_stop}")
@@ -281,7 +347,7 @@ class MacHeaterApp(rumps.App):
             self.status_menu, self.remaining_menu, self.last_stop_menu, None,
             self.start_stop_btn, None,
             self.temp_menu, self.duration_menu, self.cpu_menu, self.gpu_menu,
-            self.override_btn, None,
+            self.override_btn, self.autostart_btn, None,
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
 
@@ -376,6 +442,15 @@ class MacHeaterApp(rumps.App):
             self.override_start_time = time.time()
         self.override_btn.title = (
             f"Manual Battery Override: {'ON' if self.override_power else 'OFF'}")
+
+    def toggle_autostart(self, sender):
+        enable = not bool(sender.state)
+        try:
+            set_autostart(self.bundle_path, self.bundle_id, enable)
+        except OSError as e:
+            notify("Launch at Login", "Could not change the login item.", str(e))
+            return
+        sender.state = 1 if enable else 0
 
     # ---- workers ---------------------------------------------------------
     def _no_load(self):
@@ -517,6 +592,7 @@ class MacHeaterApp(rumps.App):
         self.status_menu.title = (
             f"Status: {state} ({elapsed_s / 60.0:.1f}/{self.duration_mins}m) {temp_str}")
         self.remaining_menu.title = f"Time remaining: {fmt_duration(left_s)}"
+
         if left_s <= 0:
             reached = "target reached" if self.reached_target else "target not reached"
             self.stop_heating(("Finished", f"Heating duration done, {reached}.", "Cooling down."))

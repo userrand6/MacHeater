@@ -34,6 +34,7 @@ Download `MacHeater-<version>.zip` from the [Releases](../../releases) page, unz
 - **Power checks:** won't start on battery unless you enable the manual override, which expires after 30 minutes.
 - **Safety cutoffs:** stops on overheat (43 °C), on low battery (below 20% when unplugged), on sensor loss, and after 90 minutes.
 - **Status in the menu:** the dropdown shows the current status, the time remaining, and why heating last stopped, with the time. The last-stop note is saved and survives restarts.
+- **Launch at Login:** a menu toggle starts the app when you log in. It's only available in the packaged app (the item is greyed out when running from source). It works by adding a small LaunchAgent file, `~/Library/LaunchAgents/<bundle identifier>.plist`, so macOS may show a "Background Items Added" notice. Turning it off removes the file. If you move the app, it updates the path the next time you start it.
 - **Remembers settings** in `~/.mac_heater_prefs.json`. The defaults above only apply until you choose something; your choices are saved and win. If both CPU and GPU are Off there is nothing to run, so the app refuses to start.
 
 ## How it measures temperature
@@ -120,7 +121,10 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
 
      app "MacHeater.app"
 
-     zap trash: "~/.mac_heater_prefs.json"
+     zap trash: [
+       "~/.mac_heater_prefs.json",
+       "~/Library/LaunchAgents/<your CFBundleIdentifier>.plist",
+     ]
    end
    ```
 3. **Commit and push**, then test:
@@ -142,6 +146,7 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
 | "GPU Usage: unavailable" in the menu | Metal bindings are missing or no GPU was found. Run `pip install pyobjc-framework-Metal`. |
 | "GPU Worker Stopped" notification | The Metal kernel failed to start. Heating continues on CPU only. |
 | Fans are loud or the Mac gets hot | Lower the target temperature or CPU usage, or stop heating. |
+| Launch at Login is greyed out | You're running from source. It only works in the packaged `.app`. |
 | Heating continues after a crash | Quit via the menu or run `pkill -f mac_heater`. Workers should exit on their own when the parent dies. |
 | `No module named 'pkg_resources'` while building | Make sure `setuptools<81` is installed: `pip install -r requirements.txt`. |
 
@@ -149,7 +154,6 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
 
 - Sustained full CPU load shortens battery life and adds thermal stress. Use it in moderation and keep the vents clear.
 - CPU 100% plus GPU 100% can draw more power than a small charger supplies, so the battery may still drain while plugged in. Lower the load if the battery percentage drops.
-- Settings migrated from older versions: the CPU preference key changed to `cpu_pct`, so that setting resets once.
 
 ## License
 
