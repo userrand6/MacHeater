@@ -32,7 +32,7 @@ Apple Silicon and Intel use the same code path: the battery temperature keys are
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip setuptools wheel
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -46,30 +46,8 @@ A ♨️ icon appears in the menu bar. Choose your target temperature, heating d
 
 ## Package as a standalone app (py2app)
 
-### 1. Create `setup.py`
 
-```python
-from setuptools import setup
-
-APP = ["mac_heater.py"]
-OPTIONS = {
-    "argv_emulation": False,
-    "plist": {
-        "CFBundleName": "MacHeater",
-        "CFBundleIdentifier": "com.example.macheater",  # change to your own
-        "LSUIElement": True,  # menu bar only, no Dock icon
-    },
-    "packages": ["rumps", "objc", "Metal"],
-}
-
-setup(
-    app=APP,
-    options={"py2app": OPTIONS},
-    setup_requires=["py2app"],
-)
-```
-
-### 2. Build
+### 1. Build
 
 ```bash
 python setup.py py2app
@@ -77,7 +55,7 @@ python setup.py py2app
 
 This creates `dist/MacHeater.app`. Add `-A` for a fast alias build while developing.
 
-### 3. Run and clean up
+### 2. Run and clean up
 
 ```bash
 open dist/MacHeater.app
@@ -86,20 +64,7 @@ rm -rf build   # optional
 
 Because the app is unsigned, macOS may block the first launch. Right-click the app, choose **Open**, and confirm.
 
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| "Sensor Error" notification | `ioreg` returned no battery temperature. This can happen on desktop Macs, which have no battery. |
-| "Cannot Start: MacBook is unplugged" | Plug in, or enable **Manual Battery Override** (auto-off after 30 min). |
-| No notifications appear | Allow notifications for the app (or your terminal, if running from source) in System Settings. |
-| "GPU Usage: unavailable" in the menu | Metal bindings are missing or no GPU was found. Run `pip install pyobjc-framework-Metal`. |
-| "GPU Worker Stopped" notification | The Metal kernel failed to start. Heating continues on CPU only. |
-| Fans are loud or the Mac gets hot | Lower the target temperature or CPU usage, or stop heating. |
-| Heating continues after a crash | Quit via the menu or run `pkill -f mac_heater`. Workers should exit on their own when the parent dies. |
-
 ## Notes
 
 - Sustained full CPU load shortens battery life and adds thermal stress. Use it in moderation and keep the vents clear.
 - CPU 100% plus GPU 100% can draw more power than a small charger supplies, so the battery may still drain while plugged in. Lower the load if the battery percentage drops.
-- Settings migrated from older versions: the CPU preference key changed to `cpu_pct`, so that setting resets once.

@@ -1,3 +1,5 @@
 rumps>=0.4.0
 pyobjc-framework-Metal>=10.0
 py2app>=0.28
+setuptools<81   # py2app on Python 3.9 needs pkg_resources, which newer setuptools dropped
+ 
