@@ -1,4 +1,4 @@
-# Mac Heater
+# Mac Heater (Vibe Coded)
 
 A macOS menu bar utility that generates CPU and GPU load to warm up your MacBook, with a target temperature, a heating duration, and safety cutoffs.
 
@@ -7,10 +7,10 @@ A macOS menu bar utility that generates CPU and GPU load to warm up your MacBook
 ### With Homebrew (recommended)
 
 ```bash
-brew install --cask <your-github-user>/tap/mac-heater
+brew install --cask userrand6/tap/mac-heater
 ```
 
-This adds the tap automatically. If Homebrew asks you to trust the tap, run `brew trust --tap <your-github-user>/tap` and retry.
+This adds the tap automatically. If Homebrew asks you to trust the tap, run `brew trust --tap userrand6/tap` and retry.
 
 The app is not notarized by Apple, so macOS blocks it on first launch. Either right-click `MacHeater.app` in Applications and choose **Open**, or allow it under **System Settings → Privacy & Security → Open Anyway**. You can also clear the quarantine flag yourself:
 
@@ -96,9 +96,9 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
 
 1. **Create the tap repo** (once). The repository must be named `homebrew-tap`:
    ```bash
-   brew tap-new <your-github-user>/homebrew-tap
-   gh repo create <your-github-user>/homebrew-tap --push --public \
-     --source "$(brew --repository <your-github-user>/homebrew-tap)"
+   brew tap-new userrand6/homebrew-tap
+   gh repo create userrand6/homebrew-tap --push --public \
+     --source "$(brew --repository userrand6/homebrew-tap)"
    ```
 2. **Add the cask** as `Casks/mac-heater.rb` in that repo:
    ```ruby
@@ -106,10 +106,10 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
      version "1.0.0"
      sha256 "<contents of MacHeater-1.0.0.zip.sha256>"
 
-     url "https://github.com/<your-github-user>/<this-repo>/releases/download/v#{version}/MacHeater-#{version}.zip"
+     url "https://github.com/userrand6/<this-repo>/releases/download/v#{version}/MacHeater-#{version}.zip"
      name "Mac Heater"
      desc "Menu bar utility that warms up your MacBook with CPU and GPU load"
-     homepage "https://github.com/<your-github-user>/<this-repo>"
+     homepage "https://github.com/userrand6/<this-repo>"
 
      depends_on arch: :arm64
 
@@ -125,7 +125,7 @@ Official `homebrew-cask` has high notability thresholds for self-submitted proje
    ```
 3. **Commit and push**, then test:
    ```bash
-   brew install --cask <your-github-user>/tap/mac-heater
+   brew install --cask userrand6/tap/mac-heater
    ```
 4. **For each new release:** after the workflow finishes, change `version` and `sha256` in the cask, commit and push.
 
